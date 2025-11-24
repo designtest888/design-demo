@@ -59,16 +59,16 @@
     const canvas = document.getElementById("renderCanvas");
     const engine = new BABYLON.Engine(canvas, true);
 
-    const createScene = async function () {
+    async function createScene() {
         const scene = new BABYLON.Scene(engine);
         scene.clearColor = new BABYLON.Color4(0.97, 0.97, 0.97, 1);
 
-        // Kamera
+        // Kamera mit Standardansicht
         const camera = new BABYLON.ArcRotateCamera(
             "camera",
             Math.PI * 1.2,
-            Math.PI / 3,
-            3.5,
+            Math.PI * 0.5,
+            3,
             BABYLON.Vector3.Zero(),
             scene
         );
@@ -76,9 +76,9 @@
         camera.lowerRadiusLimit = 1.2;
         camera.upperRadiusLimit = 20;
 
-        // 🔧 Zoom verlangsamen
-        camera.wheelPrecision = 180;         // höher = langsameres Zoom
-        camera.pinchDeltaPercentage = 0.002; // Touch-Zoom verlangsamen
+        // Zoom verlangsamen
+        camera.wheelPrecision = 120;
+        camera.pinchDeltaPercentage = 0.002;
 
         // Licht
         const light = new BABYLON.HemisphericLight(
@@ -86,7 +86,7 @@
             new BABYLON.Vector3(0.3, 1, 0.3),
             scene
         );
-        light.intensity = 1.9;
+        light.intensity = 0.95;
 
         // Umgebung + Boden
         scene.createDefaultEnvironment({
@@ -97,45 +97,44 @@
         });
 
         try {
-            // 🔽 dein Modell laden (Ordner: model, Datei: schrank.glb)
+            // 🔐 Modell versteckt laden (kein direkter GLB-Pfad im HTML sichtbar)
+            const glb = await fetch("model/schrank.glb"); 
+            const data = await glb.arrayBuffer();
             const result = await BABYLON.SceneLoader.ImportMeshAsync(
                 "",
-                "model/",
-                "schrank.glb",
-                scene
+                "",
+                "",
+                scene,
+                null,
+                ".glb",
+                data
             );
 
             const root = result.meshes[0];
-            root.position = new BABYLON.Vector3(0, 0, 0);
 
-            // 🔧 KURZFRISTIGE VARIANTE:
-            // alle Materialien beidseitig rendern & beleuchten
+            // Modellgröße bestimmen & Kamera exakt zentrieren
+            root.computeWorldMatrix(true);
+            camera.target = root.getBoundingInfo().boundingSphere.centerWorld;
+
+            // Backfaces / dunkle Türflächen korrigieren
             scene.materials.forEach(mat => {
-                if (mat.backFaceCulling !== undefined) {
-                    mat.backFaceCulling = false;      // beide Seiten zeichnen
-                }
-                if (mat.twoSidedLighting !== undefined) {
-                    mat.twoSidedLighting = true;      // Licht auf Vorder- & Rückseite
-                }
+                if (mat.backFaceCulling !== undefined) mat.backFaceCulling = false;
+                if (mat.twoSidedLighting !== undefined) mat.twoSidedLighting = true;
             });
 
         } catch (e) {
             console.error("Fehler beim Laden:", e);
-            alert("Das 3D-Modell 'schrank.glb' konnte nicht geladen werden. Pfad/Name prüfen.");
+            alert("3D-Modell konnte nicht geladen werden.");
         }
 
         return scene;
-    };
+    }
 
-    createScene().then(function (scene) {
-        engine.runRenderLoop(function () {
-            scene.render();
-        });
+    createScene().then(scene => {
+        engine.runRenderLoop(() => scene.render());
     });
 
-    window.addEventListener("resize", function () {
-        engine.resize();
-    });
+    window.addEventListener("resize", () => engine.resize());
 </script>
 
 </body>
