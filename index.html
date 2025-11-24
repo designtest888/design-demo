@@ -28,7 +28,7 @@
             background: rgba(255, 255, 255, 0.9);
             border-radius: 6px;
             box-shadow: 0 2px 6px rgba(0,0,0,0.15);
-            font-size: 14px;
+            font-size: 13px;
         }
 
         #renderCanvas {
@@ -39,8 +39,23 @@
         }
 
         .hint {
-            font-size: 12px;
+            font-size: 11px;
             color: #555;
+        }
+
+        .btn {
+            margin-top: 6px;
+            margin-right: 4px;
+            padding: 4px 8px;
+            border-radius: 4px;
+            border: 1px solid #ccc;
+            background: #f7f7f7;
+            cursor: pointer;
+            font-size: 11px;
+        }
+
+        .btn:hover {
+            background: #eaeaea;
         }
     </style>
 </head>
@@ -51,6 +66,11 @@
     <span class="hint">
         Maus: Drehen = Linksklick • Zoomen = Mausrad • Verschieben = Rechtsklick
     </span>
+    <div style="margin-top:6px;">
+        <button class="btn" id="btnStyleNeutral">Neutral</button>
+        <button class="btn" id="btnStyleBright">Hell</button>
+        <button class="btn" id="btnStyleWarm">Warm</button>
+    </div>
 </div>
 
 <canvas id="renderCanvas"></canvas>
@@ -63,71 +83,187 @@
         const scene = new BABYLON.Scene(engine);
         scene.clearColor = new BABYLON.Color4(0.97, 0.97, 0.97, 1);
 
-        // Kamera mit Standardansicht
+        // Kamera – Startposition
         const camera = new BABYLON.ArcRotateCamera(
             "camera",
-            Math.PI * 1.2,
-            Math.PI * 0.5,
-            3,
+            Math.PI * 1.3,   // horizontaler Winkel
+            Math.PI * 0.45,  // Neigung
+            4,               // Start-Radius (wird später animiert)
             BABYLON.Vector3.Zero(),
             scene
         );
         camera.attachControl(canvas, true);
         camera.lowerRadiusLimit = 1.2;
-        camera.upperRadiusLimit = 20;
+        camera.upperRadiusLimit = 30;
 
-        // Zoom verlangsamen
-        camera.wheelPrecision = 120;
-        camera.pinchDeltaPercentage = 0.002;
+        // Zoom-Geschwindigkeit
+        camera.wheelPrecision = 120;         // höher = langsameres Zoom
+        camera.pinchDeltaPercentage = 0.002; // Touch-Zoom ruhiger
 
-        // Licht
-        const light = new BABYLON.HemisphericLight(
+        // Licht – Studio-Setup
+        const hemiLight = new BABYLON.HemisphericLight(
             "hemiLight",
-            new BABYLON.Vector3(0.3, 1, 0.3),
+            new BABYLON.Vector3(0, 1, 0),
             scene
         );
-        light.intensity = 0.95;
+        hemiLight.intensity = 0.7;
 
-        // Umgebung + Boden
-        scene.createDefaultEnvironment({
+        const dirLight = new BABYLON.DirectionalLight(
+            "dirLight",
+            new BABYLON.Vector3(-1, -2, -1),
+            scene
+        );
+        dirLight.position = new BABYLON.Vector3(5, 8, 5);
+        dirLight.intensity = 0.9;
+
+        const env = scene.createDefaultEnvironment({
             createGround: true,
             groundSize: 10,
             enableGroundShadow: true,
-            groundShadowLevel: 0.7
+            groundShadowLevel: 0.6
         });
 
+        // Modell laden – hier wieder die stabile Variante mit Pfad
+        let root;
         try {
-            // 🔐 Modell versteckt laden (kein direkter GLB-Pfad im HTML sichtbar)
-            const glb = await fetch("model/schrank.glb"); 
-            const data = await glb.arrayBuffer();
             const result = await BABYLON.SceneLoader.ImportMeshAsync(
                 "",
-                "",
-                "",
-                scene,
-                null,
-                ".glb",
-                data
+                "model/",
+                "schrank.glb",
+                scene
             );
 
-            const root = result.meshes[0];
+            root = result.meshes[0];
 
-            // Modellgröße bestimmen & Kamera exakt zentrieren
+            // Modell zentrieren & Kamera richtig ausrichten
             root.computeWorldMatrix(true);
-            camera.target = root.getBoundingInfo().boundingSphere.centerWorld;
+            const boundingInfo = root.getBoundingInfo();
+            const sphere = boundingInfo.boundingSphere;
 
-            // Backfaces / dunkle Türflächen korrigieren
+            const target = sphere.centerWorld;
+            camera.setTarget(target);
+
+            const finalRadius = sphere.radiusWorld * 2.2;
+            const startRadius = finalRadius * 1.6;
+            camera.radius = startRadius;
+
+            // Schatten
+            const shadowGenerator = new BABYLON.ShadowGenerator(1024, dirLight);
+            shadowGenerator.useBlurExponentialShadowMap = true;
+            shadowGenerator.blurKernel = 16;
+
+            result.meshes.forEach(m => {
+                if (m !== env.ground && m !== env.skybox) {
+                    shadowGenerator.addShadowCaster(m);
+                    m.receiveShadows = true;
+                }
+            });
+
+            // Materialien: Backfaces aufhellen
             scene.materials.forEach(mat => {
                 if (mat.backFaceCulling !== undefined) mat.backFaceCulling = false;
                 if (mat.twoSidedLighting !== undefined) mat.twoSidedLighting = true;
             });
 
+            // Start-Animation: sanfter Zoom auf Endradius
+            const zoomAnim = new BABYLON.Animation(
+                "camZoom",
+                "radius",
+                60,
+                BABYLON.Animation.ANIMATIONTYPE_FLOAT,
+                BABYLON.Animation.ANIMATIONLOOPMODE_CONSTANT
+            );
+
+            const keys = [
+                { frame: 0,   value: startRadius },
+                { frame: 90,  value: finalRadius }
+            ];
+            zoomAnim.setKeys(keys);
+            camera.animations = [zoomAnim];
+            scene.beginAnimation(camera, 0, 90, false);
+
+            // einfache Material-Stile
+            setupMaterialStyles(scene);
+
         } catch (e) {
-            console.error("Fehler beim Laden:", e);
-            alert("3D-Modell konnte nicht geladen werden.");
+            console.error("Fehler beim Laden des Modells:", e);
+            alert("3D-Modell konnte nicht geladen werden. Prüfe: Ordner 'model' + Datei 'schrank.glb'.");
         }
 
         return scene;
+    }
+
+    function setupMaterialStyles(scene) {
+        const btnNeutral = document.getElementById("btnStyleNeutral");
+        const btnBright  = document.getElementById("btnStyleBright");
+        const btnWarm    = document.getElementById("btnStyleWarm");
+
+        // Backup der ursprünglichen Werte
+        scene.materials.forEach(mat => {
+            if (!mat._backupDone) {
+                if (mat.albedoColor) {
+                    mat._albedoColorBackup = mat.albedoColor.clone();
+                }
+                if (typeof mat.metallic === "number") {
+                    mat._metallicBackup = mat.metallic;
+                }
+                if (typeof mat.roughness === "number") {
+                    mat._roughnessBackup = mat.roughness;
+                }
+                mat._backupDone = true;
+            }
+        });
+
+        function applyStyle(style) {
+            scene.materials.forEach(mat => {
+                // Nur PBR-ähnliche Materialien anfassen
+                if (!("albedoColor" in mat)) return;
+
+                if (style === "neutral") {
+                    if (mat._albedoColorBackup) {
+                        mat.albedoColor = mat._albedoColorBackup.clone();
+                    }
+                    if (mat._metallicBackup !== undefined) {
+                        mat.metallic = mat._metallicBackup;
+                    }
+                    if (mat._roughnessBackup !== undefined) {
+                        mat.roughness = mat._roughnessBackup;
+                    }
+                }
+
+                if (style === "bright") {
+                    // etwas heller & „möbelstudio“-mäßig
+                    if (mat._albedoColorBackup) {
+                        const c = mat._albedoColorBackup;
+                        mat.albedoColor = new BABYLON.Color3(
+                            Math.min(c.r * 1.15, 1.0),
+                            Math.min(c.g * 1.15, 1.0),
+                            Math.min(c.b * 1.15, 1.0)
+                        );
+                    }
+                    mat.metallic  = 0.1;
+                    mat.roughness = 0.45;
+                }
+
+                if (style === "warm") {
+                    if (mat._albedoColorBackup) {
+                        const c = mat._albedoColorBackup;
+                        // leichter Warm-Ton (leicht ins Gelbliche)
+                        mat.albedoColor = new BABYLON.Color3(
+                            Math.min(c.r * 1.05 + 0.03, 1.0),
+                            Math.min(c.g * 1.02 + 0.01, 1.0),
+                            Math.max(c.b * 0.97 - 0.02, 0.0)
+                        );
+                    }
+                    mat.metallic  = 0.05;
+                    mat.roughness = 0.5;
+                }
+            });
+        }
+
+        btnNeutral.addEventListener("click", () => applyStyle("neutral"));
+        btnBright.addEventListener("click",  () => applyStyle("bright"));
+        btnWarm.addEventListener("click",    () => applyStyle("warm"));
     }
 
     createScene().then(scene => {
