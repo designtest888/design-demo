@@ -83,24 +83,23 @@
         const scene = new BABYLON.Scene(engine);
         scene.clearColor = new BABYLON.Color4(0.97, 0.97, 0.97, 1);
 
-        // Kamera – Startposition
+        // Kamera – Basiswerte, konkrete Position kommt NACH dem Laden des Modells
         const camera = new BABYLON.ArcRotateCamera(
             "camera",
-            Math.PI * 1.3,   // horizontaler Winkel
-            Math.PI * 0.45,  // Neigung
-            4,               // Start-Radius (wird später animiert)
+            Math.PI * 1.3,
+            Math.PI * 0.4,
+            10,
             BABYLON.Vector3.Zero(),
             scene
         );
         camera.attachControl(canvas, true);
-        camera.lowerRadiusLimit = 1.2;
-        camera.upperRadiusLimit = 30;
+        camera.lowerRadiusLimit = 1.0;
+        camera.upperRadiusLimit = 100;
 
-        // Zoom-Geschwindigkeit
-        camera.wheelPrecision = 120;         // höher = langsameres Zoom
-        camera.pinchDeltaPercentage = 0.002; // Touch-Zoom ruhiger
+        camera.wheelPrecision = 120;
+        camera.pinchDeltaPercentage = 0.002;
 
-        // Licht – Studio-Setup
+        // Licht – „Studio“
         const hemiLight = new BABYLON.HemisphericLight(
             "hemiLight",
             new BABYLON.Vector3(0, 1, 0),
@@ -118,13 +117,11 @@
 
         const env = scene.createDefaultEnvironment({
             createGround: true,
-            groundSize: 10,
+            groundSize: 20,
             enableGroundShadow: true,
             groundShadowLevel: 0.6
         });
 
-        // Modell laden – hier wieder die stabile Variante mit Pfad
-        let root;
         try {
             const result = await BABYLON.SceneLoader.ImportMeshAsync(
                 "",
@@ -133,19 +130,33 @@
                 scene
             );
 
-            root = result.meshes[0];
+            const root = result.meshes[0];
 
-            // Modell zentrieren & Kamera richtig ausrichten
+            // Bounding Box berechnen
             root.computeWorldMatrix(true);
             const boundingInfo = root.getBoundingInfo();
-            const sphere = boundingInfo.boundingSphere;
+            const boxMin = boundingInfo.minimumWorld;
+            const boxMax = boundingInfo.maximumWorld;
 
-            const target = sphere.centerWorld;
-            camera.setTarget(target);
+            const size = boxMax.subtract(boxMin);
+            const maxSize = Math.max(size.x, size.y, size.z);
 
-            const finalRadius = sphere.radiusWorld * 2.2;
-            const startRadius = finalRadius * 1.6;
-            camera.radius = startRadius;
+            // Mittelpunkt des Modells
+            const center = boundingInfo.boundingBox.centerWorld;
+
+            // Kamera genau auf den Mittelpunkt richten
+            camera.setTarget(center);
+
+            // Startabstand: ein paar Modellgrößen weg, damit man den Schrank GANZ sieht
+            camera.radius = maxSize * 2.5;
+
+            // gewünschter Winkel (schräg von vorne, leicht von oben)
+            camera.alpha = Math.PI * 1.25;   // horizontal
+            camera.beta  = Math.PI * 0.35;   // vertikal
+
+            // optional: verhindern, dass man unter den Boden drehen kann
+            camera.lowerBetaLimit = 0.1;
+            camera.upperBetaLimit = Math.PI / 2.1;
 
             // Schatten
             const shadowGenerator = new BABYLON.ShadowGenerator(1024, dirLight);
@@ -159,30 +170,13 @@
                 }
             });
 
-            // Materialien: Backfaces aufhellen
+            // Materialien beidseitig beleuchten (gegen dunkle Türen)
             scene.materials.forEach(mat => {
                 if (mat.backFaceCulling !== undefined) mat.backFaceCulling = false;
                 if (mat.twoSidedLighting !== undefined) mat.twoSidedLighting = true;
             });
 
-            // Start-Animation: sanfter Zoom auf Endradius
-            const zoomAnim = new BABYLON.Animation(
-                "camZoom",
-                "radius",
-                60,
-                BABYLON.Animation.ANIMATIONTYPE_FLOAT,
-                BABYLON.Animation.ANIMATIONLOOPMODE_CONSTANT
-            );
-
-            const keys = [
-                { frame: 0,   value: startRadius },
-                { frame: 90,  value: finalRadius }
-            ];
-            zoomAnim.setKeys(keys);
-            camera.animations = [zoomAnim];
-            scene.beginAnimation(camera, 0, 90, false);
-
-            // einfache Material-Stile
+            // einfache Materialstile für Buttons vorbereiten
             setupMaterialStyles(scene);
 
         } catch (e) {
@@ -198,7 +192,7 @@
         const btnBright  = document.getElementById("btnStyleBright");
         const btnWarm    = document.getElementById("btnStyleWarm");
 
-        // Backup der ursprünglichen Werte
+        // Originalwerte sichern
         scene.materials.forEach(mat => {
             if (!mat._backupDone) {
                 if (mat.albedoColor) {
@@ -216,23 +210,15 @@
 
         function applyStyle(style) {
             scene.materials.forEach(mat => {
-                // Nur PBR-ähnliche Materialien anfassen
                 if (!("albedoColor" in mat)) return;
 
                 if (style === "neutral") {
-                    if (mat._albedoColorBackup) {
-                        mat.albedoColor = mat._albedoColorBackup.clone();
-                    }
-                    if (mat._metallicBackup !== undefined) {
-                        mat.metallic = mat._metallicBackup;
-                    }
-                    if (mat._roughnessBackup !== undefined) {
-                        mat.roughness = mat._roughnessBackup;
-                    }
+                    if (mat._albedoColorBackup) mat.albedoColor = mat._albedoColorBackup.clone();
+                    if (mat._metallicBackup !== undefined)  mat.metallic  = mat._metallicBackup;
+                    if (mat._roughnessBackup !== undefined) mat.roughness = mat._roughnessBackup;
                 }
 
                 if (style === "bright") {
-                    // etwas heller & „möbelstudio“-mäßig
                     if (mat._albedoColorBackup) {
                         const c = mat._albedoColorBackup;
                         mat.albedoColor = new BABYLON.Color3(
@@ -248,7 +234,6 @@
                 if (style === "warm") {
                     if (mat._albedoColorBackup) {
                         const c = mat._albedoColorBackup;
-                        // leichter Warm-Ton (leicht ins Gelbliche)
                         mat.albedoColor = new BABYLON.Color3(
                             Math.min(c.r * 1.05 + 0.03, 1.0),
                             Math.min(c.g * 1.02 + 0.01, 1.0),
