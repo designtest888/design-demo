@@ -77,7 +77,7 @@
         camera.upperRadiusLimit = 20;
 
         // 🔧 Zoom verlangsamen
-        camera.wheelPrecision = 120;         // höher = langsameres Zoom
+        camera.wheelPrecision = 180;         // höher = langsameres Zoom
         camera.pinchDeltaPercentage = 0.002; // Touch-Zoom verlangsamen
 
         // Licht
@@ -86,7 +86,7 @@
             new BABYLON.Vector3(0.3, 1, 0.3),
             scene
         );
-        light.intensity = 0.9;
+        light.intensity = 1.9;
 
         // Umgebung + Boden
         scene.createDefaultEnvironment({
