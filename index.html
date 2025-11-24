@@ -2,7 +2,7 @@
 <html lang="de">
 <head>
     <meta charset="UTF-8">
-    <title>3D Ansicht – Schrank Demo</title>
+    <title>3D Schrankansicht</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
     <!-- Babylon.js von CDN laden -->
@@ -56,7 +56,6 @@
 <canvas id="renderCanvas"></canvas>
 
 <script>
-    // Canvas & Engine
     const canvas = document.getElementById("renderCanvas");
     const engine = new BABYLON.Engine(canvas, true);
 
@@ -77,6 +76,10 @@
         camera.lowerRadiusLimit = 1.2;
         camera.upperRadiusLimit = 20;
 
+        // 🔧 Zoom verlangsamen
+        camera.wheelPrecision = 120;         // höher = langsameres Zoom
+        camera.pinchDeltaPercentage = 0.002; // Touch-Zoom verlangsamen
+
         // Licht
         const light = new BABYLON.HemisphericLight(
             "hemiLight",
@@ -93,8 +96,8 @@
             groundShadowLevel: 0.7
         });
 
-        // 🔽 HIER: dein Modell laden
         try {
+            // 🔽 dein Modell laden (Ordner: model, Datei: schrank.glb)
             const result = await BABYLON.SceneLoader.ImportMeshAsync(
                 "",
                 "model/",
@@ -104,6 +107,17 @@
 
             const root = result.meshes[0];
             root.position = new BABYLON.Vector3(0, 0, 0);
+
+            // 🔧 KURZFRISTIGE VARIANTE:
+            // alle Materialien beidseitig rendern & beleuchten
+            scene.materials.forEach(mat => {
+                if (mat.backFaceCulling !== undefined) {
+                    mat.backFaceCulling = false;      // beide Seiten zeichnen
+                }
+                if (mat.twoSidedLighting !== undefined) {
+                    mat.twoSidedLighting = true;      // Licht auf Vorder- & Rückseite
+                }
+            });
 
         } catch (e) {
             console.error("Fehler beim Laden:", e);
